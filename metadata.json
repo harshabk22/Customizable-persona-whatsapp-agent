@@ -1,0 +1,6 @@
+{
+  "name": "WhatsApp AI Agent Dashboard",
+  "description": "A full-stack WhatsApp AI agent dashboard that allows users to connect their WhatsApp account, build AI personas, and automatically reply to messages.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
