@@ -4,7 +4,7 @@
 
 # Customizable Persona WhatsApp Agent Dashboard
 
-A premium, full-stack WhatsApp AI Agent Dashboard powered by the **Google Gemini API** (`gemini-3.5-flash`). This application allows businesses to pair virtual WhatsApp devices, define multiple specialized AI personas (e.g., empathetic customer support, converter sales agent, technical expert) with custom tone blueprints, dynamically assign personas to contacts/tags, and oversee everything in real-time.
+A premium, full-stack WhatsApp AI Agent Dashboard powered by the **Google Gemini API**. This application allows businesses to pair virtual WhatsApp devices, define multiple specialized AI personas (e.g., empathetic customer support, converter sales agent, technical expert) with custom tone blueprints, dynamically assign personas to contacts/tags, and oversee everything in real-time.
 
 ---
 
@@ -32,7 +32,7 @@ A premium, full-stack WhatsApp AI Agent Dashboard powered by the **Google Gemini
 
 ### Prerequisites
 * **Node.js** (v18 or higher recommended)
-* A **Gemini API Key** from [Google AI Studio](https://aistudio.google.com/) (Optional: falls back to simulated offline replies if missing)
+* A **Gemini API Key** (Optional: falls back to simulated offline replies if missing)
 
 ### Installation
 1. Clone this repository to your local directory.
