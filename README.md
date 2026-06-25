@@ -1,69 +1,56 @@
-<div align="center">
-<img width="1200" height="475" alt="WhatsApp AI Agent Dashboard" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
-
 # Customizable Persona WhatsApp Agent Dashboard
 
-A premium, full-stack WhatsApp AI Agent Dashboard powered by the **Google Gemini API**. This application allows businesses to pair virtual WhatsApp devices, define multiple specialized AI personas (e.g., empathetic customer support, converter sales agent, technical expert) with custom tone blueprints, dynamically assign personas to contacts/tags, and oversee everything in real-time.
+This project is a dashboard that allows you to manage automated WhatsApp replies using the Gemini API. You can connect a virtual WhatsApp number, customize AI personas with different system prompts and tones, assign them to contacts, and send broadcast campaigns to specific customer tag groups.
 
----
+## Features
 
-## 🚀 Key Features
+- **Dashboard Overview**: View your connection status, message count statistics, and system activity logs in one place. Includes basic charts comparing AI replies vs. human takeover.
+- **WhatsApp Simulator**: Send messages from a simulated customer phone directly in the app to test how your AI agent replies.
+- **Custom Personas**: Create and toggle different AI personalities (such as support, sales, or technical help) with custom system prompts.
+- **Contacts Management**: Save your customer contact list, add tags or notes, and assign a specific persona to a contact.
+- **Broadcast Announcements**: Send instant or scheduled broadcast messages to selected contacts or tags.
+- **Backup and Restore**: Export your personas, contacts, and settings to a JSON file and restore them anytime.
+- **Real-Time Updates**: Status updates, logs, and new messages update instantly on the screen using WebSockets.
 
-* 📊 **Interactive Real-Time Dashboard**: Monitor device connection state, active chats, total traffic, and average reply lag times. Dynamic Area and Bar charts visualize AI vs. Human takeover rates.
-* 💬 **Built-In Virtual Device Simulator**: Test prompt changes instantly. Send incoming messages from a simulated guest phone number and watch the AI agent process, show a "typing" state, and auto-reply.
-* 🤖 **Custom AI Personas Blueprint**: Create, duplicate, and toggle multiple specialized AI personas. Formulate system prompts, rules, and tones to fit specific operations.
-* 🏷️ **Contact & Tag Management**: Create/edit customer profiles, assign descriptive tags, write custom memory summaries, and override the global AI persona for specific VIP contacts.
-* 📢 **Targeted Broadcast Campaigns**: Compose custom announcement templates and send instant or scheduled broadcasts to selected contacts based on tags.
-* 🛡️ **Workspace Backup & Restore**: Instantly export settings, contacts, personas, and activity logs into a single JSON file and restore it to sync workspaces.
-* 🔄 **Live Event Feeds**: Completely wired with Socket.IO for immediate status badges, log streaming, and graph updates without browser reloads. Ignored file watching on the database directory prevents annoying flickering during edits.
+## Tech Stack
 
----
+- **Backend**: Node.js, Express, TypeScript, Socket.io
+- **Frontend**: React, Vite, Tailwind CSS, Recharts
+- **Database**: Local JSON files stored in the workspace
 
-## 🛠️ Tech Stack
-
-* **Backend**: Node.js, Express, TypeScript, Socket.IO, `@google/genai`
-* **Frontend**: React (Vite), Tailwind CSS (v4), Recharts, Lucide Icons, Socket.IO Client
-* **Database**: Local file-system persistent JSON storage
-
----
-
-## ⚙️ Getting Started
+## Getting Started
 
 ### Prerequisites
-* **Node.js** (v18 or higher recommended)
-* A **Gemini API Key** (Optional: falls back to simulated offline replies if missing)
+
+You will need Node.js installed on your machine and a Gemini API Key.
 
 ### Installation
-1. Clone this repository to your local directory.
-2. Install the package dependencies:
+
+1. Clone this repository to your local machine.
+2. Install the dependencies:
    ```bash
    npm install
    ```
-3. Set your environment variables in `.env` (copied from `.env.example`):
+3. Create a `.env` file in the root directory (based on `.env.example`) and add your API key:
    ```env
-   GEMINI_API_KEY="your-gemini-api-key-here"
+   GEMINI_API_KEY="your_api_key_here"
    ```
 
 ### Running Locally
-To launch both the Vite development server and the Express TypeScript backend:
+
+To start the local development server:
 ```bash
 npm run dev
 ```
-Open **[http://localhost:3000](http://localhost:3000)** in your browser.
+Once started, open your browser and navigate to `http://localhost:3000`.
 
 ### Building for Production
-To bundle the frontend Vite application and build the backend server into a single executable bundle:
+
+To compile and package the application:
 ```bash
 npm run build
 ```
 To run the production build:
 ```bash
 npm run start
-```
-
-### Code Formatting & Type Checks
-Verify that the codebase compiles cleanly and satisfies TypeScript rules:
-```bash
-npm run lint
 ```
