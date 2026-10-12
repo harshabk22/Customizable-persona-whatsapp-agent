@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
+import { Socket } from "socket.io-client";
 import { Plus, Search, Tag, User, Smartphone, Trash2, Edit2, X, Sparkles } from "lucide-react";
 import { Contact, Persona } from "../types";
 
 interface ContactsProps {
   token: string;
+  socket?: Socket | null;
 }
 
-export default function Contacts({ token }: ContactsProps) {
+export default function Contacts({ token, socket }: ContactsProps) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [search, setSearch] = useState("");
@@ -28,8 +30,10 @@ export default function Contacts({ token }: ContactsProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/contacts", { headers });
-      const data = await res.json();
-      setContacts(data);
+      if (res.ok) {
+        const data = await res.json();
+        setContacts(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
       console.error("Failed to load contacts:", err);
     } finally {
@@ -41,17 +45,42 @@ export default function Contacts({ token }: ContactsProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/personas", { headers });
-      const data = await res.json();
-      setPersonas(data);
+      if (res.ok) {
+        const data = await res.json();
+        setPersonas(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
       console.error("Failed to load personas:", err);
     }
   };
 
   useEffect(() => {
-    fetchContacts();
-    fetchPersonas();
+    Promise.all([fetchContacts(), fetchPersonas()]);
   }, [token]);
+
+  // Real-time contact updates from socket
+  useEffect(() => {
+    if (!socket) return;
+    const onContactAdded = (newContact: Contact) => {
+      setContacts((prev) => (prev.some((c) => c.id === newContact.id) ? prev : [newContact, ...prev]));
+    };
+    const onContactUpdated = (updatedContact: Contact) => {
+      setContacts((prev) => prev.map((c) => (c.id === updatedContact.id ? updatedContact : c)));
+    };
+    const onContactDeleted = (data: { id: string }) => {
+      setContacts((prev) => prev.filter((c) => c.id !== data.id));
+    };
+
+    socket.on("contact_added", onContactAdded);
+    socket.on("contact_updated", onContactUpdated);
+    socket.on("contact_deleted", onContactDeleted);
+
+    return () => {
+      socket.off("contact_added", onContactAdded);
+      socket.off("contact_updated", onContactUpdated);
+      socket.off("contact_deleted", onContactDeleted);
+    };
+  }, [socket]);
 
   const handleOpenAddModal = () => {
     setEditingContact(null);
@@ -89,7 +118,7 @@ export default function Contacts({ token }: ContactsProps) {
       phone,
       tags,
       notes,
-      assignedPersonaId: assignedPersonaId || undefined,
+      assignedPersonaId: assignedPersonaId || null,
     };
 
     const headers = {
@@ -151,12 +180,14 @@ export default function Contacts({ token }: ContactsProps) {
   };
 
   // Filter contacts by search query
-  const filteredContacts = contacts.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone.includes(search) ||
-      c.tags.some((t) => t.toLowerCase().includes(search.toLowerCase()))
-  );
+  const searchLower = search.trim().toLowerCase();
+  const filteredContacts = contacts.filter((c) => {
+    if (!searchLower) return true;
+    const nameMatch = (c.name || "").toLowerCase().includes(searchLower);
+    const phoneMatch = (c.phone || "").includes(searchLower);
+    const tagMatch = (c.tags || []).some((t) => (t || "").toLowerCase().includes(searchLower));
+    return nameMatch || phoneMatch || tagMatch;
+  });
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto font-sans text-zinc-100">
@@ -215,7 +246,7 @@ export default function Contacts({ token }: ContactsProps) {
                   <div className="flex items-start justify-between gap-4 mb-4">
                     <div className="flex items-center gap-3">
                       <div className="w-11 h-11 bg-[#1a1a1a] text-zinc-300 border border-white/5 rounded-full flex items-center justify-center font-bold shrink-0 text-sm">
-                        {contact.name.slice(0, 2).toUpperCase()}
+                        {(contact.name || "??").slice(0, 2).toUpperCase()}
                       </div>
                       <div>
                         <h3 className="font-bold text-zinc-200 text-sm leading-tight">{contact.name}</h3>
@@ -249,7 +280,7 @@ export default function Contacts({ token }: ContactsProps) {
                   )}
 
                   {/* Tags */}
-                  {contact.tags.length > 0 && (
+                  {(contact.tags || []).length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-4">
                       {contact.tags.map((tag, i) => (
                         <span

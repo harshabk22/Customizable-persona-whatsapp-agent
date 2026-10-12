@@ -8,28 +8,39 @@ if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
 }
 
-// Utility to read/write JSON files safely
-function readJsonFile<T>(filename: string, defaultValue: T): T {
-  const filePath = path.join(DATA_DIR, filename);
-  if (!fs.existsSync(filePath)) {
-    fs.writeFileSync(filePath, JSON.stringify(defaultValue, null, 2), "utf8");
-    return defaultValue;
-  }
-  try {
-    const content = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(content) as T;
-  } catch (error) {
-    console.error(`Error reading ${filename}:`, error);
-    return defaultValue;
-  }
-}
+// In-Memory Cached, Atomic-Write JSON Store
+class JsonStore<T> {
+  private cache: T | null = null;
 
-function writeJsonFile<T>(filename: string, data: T): void {
-  const filePath = path.join(DATA_DIR, filename);
-  try {
-    fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
-  } catch (error) {
-    console.error(`Error writing ${filename}:`, error);
+  constructor(private filename: string, private defaultValue: T) {}
+
+  get(): T {
+    if (this.cache !== null) return this.cache;
+    const filePath = path.join(DATA_DIR, this.filename);
+    if (!fs.existsSync(filePath)) {
+      this.set(this.defaultValue);
+      return this.defaultValue;
+    }
+    try {
+      const content = fs.readFileSync(filePath, "utf8");
+      this.cache = JSON.parse(content) as T;
+      return this.cache;
+    } catch (error) {
+      console.error(`Error reading ${this.filename}:`, error);
+      return this.defaultValue;
+    }
+  }
+
+  set(data: T): void {
+    this.cache = data;
+    const filePath = path.join(DATA_DIR, this.filename);
+    const tempPath = `${filePath}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`;
+    try {
+      fs.writeFileSync(tempPath, JSON.stringify(data, null, 2), "utf8");
+      fs.renameSync(tempPath, filePath);
+    } catch (error) {
+      console.error(`Error atomically saving ${this.filename}:`, error);
+    }
   }
 }
 
@@ -123,11 +134,11 @@ export interface Settings {
   typingDelay: number; // in seconds
   responseLength: "Short" | "Medium" | "Detailed";
   language: string;
-  conversationMemory: number; // number of messages to remember
+  conversationMemory: number;
   enableMarkdown: boolean;
   enableEmoji: boolean;
-  businessHoursStart: string; // "09:00"
-  businessHoursEnd: string; // "17:00"
+  businessHoursStart: string;
+  businessHoursEnd: string;
   defaultPersonaId?: string;
 }
 
@@ -141,6 +152,7 @@ export interface Broadcast {
   progress: number;
   contactsCount: number;
   sentCount: number;
+  targetContactIds?: string[];
 }
 
 export interface Log {
@@ -153,107 +165,74 @@ export interface Log {
 
 export interface Analytics {
   userId: string;
-  date: string; // YYYY-MM-DD
+  date: string;
   totalMessages: number;
   aiReplies: number;
   humanReplies: number;
-  avgResponseTime: number; // in seconds
+  avgResponseTime: number;
 }
 
-// Memory Database Service
+// Stores
+const stores = {
+  users: new JsonStore<User[]>("users.json", []),
+  sessions: new JsonStore<WhatsAppSession[]>("whatsapp_sessions.json", []),
+  contacts: new JsonStore<Contact[]>("contacts.json", []),
+  conversations: new JsonStore<Conversation[]>("conversations.json", []),
+  messages: new JsonStore<Message[]>("messages.json", []),
+  personas: new JsonStore<Persona[]>("personas.json", []),
+  settings: new JsonStore<Settings[]>("settings.json", []),
+  broadcasts: new JsonStore<Broadcast[]>("broadcasts.json", []),
+  logs: new JsonStore<Log[]>("logs.json", []),
+  analytics: new JsonStore<Analytics[]>("analytics.json", []),
+};
+
 export class Database {
-  static getUsers(): User[] {
-    return readJsonFile<User[]>("users.json", []);
-  }
+  static getUsers(): User[] { return stores.users.get(); }
+  static saveUsers(users: User[]): void { stores.users.set(users); }
 
-  static saveUsers(users: User[]): void {
-    writeJsonFile<User[]>("users.json", users);
-  }
+  static getSessions(): WhatsAppSession[] { return stores.sessions.get(); }
+  static saveSessions(sessions: WhatsAppSession[]): void { stores.sessions.set(sessions); }
 
-  static getSessions(): WhatsAppSession[] {
-    return readJsonFile<WhatsAppSession[]>("whatsapp_sessions.json", []);
-  }
+  static getContacts(): Contact[] { return stores.contacts.get(); }
+  static saveContacts(contacts: Contact[]): void { stores.contacts.set(contacts); }
 
-  static saveSessions(sessions: WhatsAppSession[]): void {
-    writeJsonFile<WhatsAppSession[]>("whatsapp_sessions.json", sessions);
-  }
+  static getConversations(): Conversation[] { return stores.conversations.get(); }
+  static saveConversations(conversations: Conversation[]): void { stores.conversations.set(conversations); }
 
-  static getContacts(): Contact[] {
-    return readJsonFile<Contact[]>("contacts.json", []);
-  }
+  static getMessages(): Message[] { return stores.messages.get(); }
+  static saveMessages(messages: Message[]): void { stores.messages.set(messages); }
 
-  static saveContacts(contacts: Contact[]): void {
-    writeJsonFile<Contact[]>("contacts.json", contacts);
-  }
+  static getPersonas(): Persona[] { return stores.personas.get(); }
+  static savePersonas(personas: Persona[]): void { stores.personas.set(personas); }
 
-  static getConversations(): Conversation[] {
-    return readJsonFile<Conversation[]>("conversations.json", []);
-  }
+  static getSettings(): Settings[] { return stores.settings.get(); }
+  static saveSettings(settings: Settings[]): void { stores.settings.set(settings); }
 
-  static saveConversations(conversations: Conversation[]): void {
-    writeJsonFile<Conversation[]>("conversations.json", conversations);
-  }
+  static getBroadcasts(): Broadcast[] { return stores.broadcasts.get(); }
+  static saveBroadcasts(broadcasts: Broadcast[]): void { stores.broadcasts.set(broadcasts); }
 
-  static getMessages(): Message[] {
-    return readJsonFile<Message[]>("messages.json", []);
-  }
+  static getLogs(): Log[] { return stores.logs.get(); }
+  static saveLogs(logs: Log[]): void { stores.logs.set(logs); }
 
-  static saveMessages(messages: Message[]): void {
-    writeJsonFile<Message[]>("messages.json", messages);
-  }
+  static getAnalytics(): Analytics[] { return stores.analytics.get(); }
+  static saveAnalytics(analytics: Analytics[]): void { stores.analytics.set(analytics); }
 
-  static getPersonas(): Persona[] {
-    return readJsonFile<Persona[]>("personas.json", []);
-  }
-
-  static savePersonas(personas: Persona[]): void {
-    writeJsonFile<Persona[]>("personas.json", personas);
-  }
-
-  static getSettings(): Settings[] {
-    return readJsonFile<Settings[]>("settings.json", []);
-  }
-
-  static saveSettings(settings: Settings[]): void {
-    writeJsonFile<Settings[]>("settings.json", settings);
-  }
-
-  static getBroadcasts(): Broadcast[] {
-    return readJsonFile<Broadcast[]>("broadcasts.json", []);
-  }
-
-  static saveBroadcasts(broadcasts: Broadcast[]): void {
-    writeJsonFile<Broadcast[]>("broadcasts.json", broadcasts);
-  }
-
-  static getLogs(): Log[] {
-    return readJsonFile<Log[]>("logs.json", []);
-  }
-
-  static saveLogs(logs: Log[]): void {
-    writeJsonFile<Log[]>("logs.json", logs);
-  }
-
-  static getAnalytics(): Analytics[] {
-    return readJsonFile<Analytics[]>("analytics.json", []);
-  }
-
-  static saveAnalytics(analytics: Analytics[]): void {
-    writeJsonFile<Analytics[]>("analytics.json", analytics);
-  }
-
-  // Seed default data for a user
+  // Seed default data for a user if not already initialized
   static seedUserData(userId: string): void {
-    // 1. Personas (Create first so we have the IDs for settings and conversations)
-    const allPersonas = this.getPersonas();
-    const userPersonas = allPersonas.filter((p) => p.userId === userId);
-    
+    const allSettings = this.getSettings();
+    if (allSettings.some((s) => s.userId === userId)) {
+      return; // Already initialized
+    }
+
     const supportPersonaId = `${userId}-persona-support`;
     const salesPersonaId = `${userId}-persona-sales`;
     const techPersonaId = `${userId}-persona-tech`;
 
+    // 1. Personas
+    const allPersonas = this.getPersonas();
+    const userPersonas = allPersonas.filter((p) => p.userId === userId);
     if (userPersonas.length === 0) {
-      const defaultPersonas: Persona[] = [
+      allPersonas.push(
         {
           id: supportPersonaId,
           userId,
@@ -280,45 +259,40 @@ export class Database {
           systemPrompt: "You are Technical Expert, an expert troubleshooter. You provide clear, step-by-step instructions. Keep language clear, precise, and professional. Avoid fluff; focus on factual accuracy.",
           tone: "Factual, precise, structured",
           isActive: false,
-        },
-      ];
-      allPersonas.push(...defaultPersonas);
+        }
+      );
       this.savePersonas(allPersonas);
     }
 
     // 2. Settings
-    const allSettings = this.getSettings();
-    if (!allSettings.some((s) => s.userId === userId)) {
-      allSettings.push({
-        userId,
-        businessName: "My AI Business",
-        timezone: "America/New_York",
-        defaultLanguage: "en",
-        notificationsEnabled: true,
-        darkMode: false,
-        autoReplyToggle: true,
-        openaiApiKey: "",
-        model: "gemini-2.5-flash",
-        temperature: 0.7,
-        maxTokens: 500,
-        replyDelay: 3,
-        typingDelay: 2,
-        responseLength: "Medium",
-        language: "English",
-        conversationMemory: 10,
-        enableMarkdown: true,
-        enableEmoji: true,
-        businessHoursStart: "00:00",
-        businessHoursEnd: "23:59",
-        defaultPersonaId: supportPersonaId,
-      });
-      this.saveSettings(allSettings);
-    }
+    allSettings.push({
+      userId,
+      businessName: "My AI Business",
+      timezone: "America/New_York",
+      defaultLanguage: "en",
+      notificationsEnabled: true,
+      darkMode: false,
+      autoReplyToggle: true,
+      openaiApiKey: "",
+      model: "gemini-2.5-flash",
+      temperature: 0.7,
+      maxTokens: 500,
+      replyDelay: 2,
+      typingDelay: 1,
+      responseLength: "Medium",
+      language: "English",
+      conversationMemory: 10,
+      enableMarkdown: true,
+      enableEmoji: true,
+      businessHoursStart: "00:00",
+      businessHoursEnd: "23:59",
+      defaultPersonaId: supportPersonaId,
+    });
+    this.saveSettings(allSettings);
 
     // 3. WhatsApp Session
     const allSessions = this.getSessions();
-    const existingSessionIndex = allSessions.findIndex((s) => s.userId === userId);
-    if (existingSessionIndex === -1) {
+    if (!allSessions.some((s) => s.userId === userId)) {
       allSessions.push({
         userId,
         status: "Not Connected",
@@ -329,18 +303,16 @@ export class Database {
       this.saveSessions(allSessions);
     }
 
-    // 5. Seed Analytics (Last 7 days)
+    // 4. Seed Analytics (Past 7 days)
     const allAnalytics = this.getAnalytics();
-    const userAnalytics = allAnalytics.filter((a) => a.userId === userId);
-    if (userAnalytics.length === 0) {
+    if (!allAnalytics.some((a) => a.userId === userId)) {
       const today = new Date();
       for (let i = 6; i >= 0; i--) {
         const d = new Date(today);
         d.setDate(today.getDate() - i);
-        const dateStr = d.toISOString().split("T")[0];
         allAnalytics.push({
           userId,
-          date: dateStr,
+          date: d.toISOString().split("T")[0],
           totalMessages: Math.floor(Math.random() * 15) + 5,
           aiReplies: Math.floor(Math.random() * 10) + 3,
           humanReplies: Math.floor(Math.random() * 4),
@@ -350,16 +322,15 @@ export class Database {
       this.saveAnalytics(allAnalytics);
     }
 
-    // 6. Seed Logs
+    // 5. Seed Logs
     const allLogs = this.getLogs();
-    const userLogs = allLogs.filter((l) => l.userId === userId);
-    if (userLogs.length === 0) {
+    if (!allLogs.some((l) => l.userId === userId)) {
       allLogs.push(
         {
           id: crypto.randomUUID(),
           userId,
           type: "info",
-          message: "Database initialized successfully for user workspace",
+          message: "Workspace initialized successfully",
           timestamp: new Date(Date.now() - 3600000).toISOString(),
         },
         {

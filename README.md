@@ -1,56 +1,109 @@
-# Customizable Persona WhatsApp Agent Dashboard
+# WhatsApp AI Persona Agent
 
-This project is a dashboard that allows you to manage automated WhatsApp replies using the Gemini API. You can connect a virtual WhatsApp number, customize AI personas with different system prompts and tones, assign them to contacts, and send broadcast campaigns to specific customer tag groups.
+A self-hosted dashboard to manage AI-powered WhatsApp conversations. It lets you create custom personas (such as Customer Support, Sales Rep, or Technical Assistant), assign them to specific contacts or tags, test conversations directly with a built-in virtual phone simulator, and dispatch broadcast campaigns.
+
+Built with Google Gemini 2.5 Flash, React, Node.js, and live WebSocket updates.
+
+```mermaid
+flowchart LR
+    A["Customer WhatsApp / Virtual Phone Simulator"] <--> B["Node.js + Express Server"]
+    B <--> C["Google Gemini 2.5 Flash"]
+    B <--> D["React 19 Dashboard (Live WebSockets)"]
+```
 
 ## Features
 
-- **Dashboard Overview**: View your connection status, message count statistics, and system activity logs in one place. Includes basic charts comparing AI replies vs. human takeover.
-- **WhatsApp Simulator**: Send messages from a simulated customer phone directly in the app to test how your AI agent replies.
-- **Custom Personas**: Create and toggle different AI personalities (such as support, sales, or technical help) with custom system prompts.
-- **Contacts Management**: Save your customer contact list, add tags or notes, and assign a specific persona to a contact.
-- **Broadcast Announcements**: Send instant or scheduled broadcast messages to selected contacts or tags.
-- **Backup and Restore**: Export your personas, contacts, and settings to a JSON file and restore them anytime.
-- **Real-Time Updates**: Status updates, logs, and new messages update instantly on the screen using WebSockets.
+- **Custom AI Personas**: Create distinct personalities with custom system instructions, tones, and knowledge. Switch active personas or assign specific personas to individual contacts.
+- **Built-in Virtual Phone Simulator**: Test conversations from a customer's perspective inside your browser without needing a physical phone or an active Meta business setup.
+- **Live Inbox & Human Takeover**: Monitor customer chats in real time. Pause AI automation or take over manually with a single click.
+- **Delivery Receipts**: Accurate message statuses with WhatsApp checkmarks (`sent` ✓, `delivered` ✓✓, `read` ✓✓).
+- **Contact CRM & Tagging**: Organize customer contacts with tags, notes, and custom assigned personas.
+- **Broadcast Campaigns**: Send instant or scheduled announcements to selected contact lists or tag groups.
+- **Meta WhatsApp Cloud API Integration**: Seamlessly switch from simulator testing to production Meta WhatsApp Cloud API webhooks and messaging.
+- **Zero-Config Local Storage**: Stores contacts, chats, and configurations in atomic, cached local JSON files. No external database setup required.
 
 ## Tech Stack
 
-- **Backend**: Node.js, Express, TypeScript, Socket.io
-- **Frontend**: React, Vite, Tailwind CSS, Recharts
-- **Database**: Local JSON files stored in the workspace
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS, Lucide Icons, Recharts
+- **Backend**: Node.js, Express, Socket.io
+- **AI Engine**: Google Gemini API (`@google/genai` with `gemini-2.5-flash`)
+- **Storage**: Atomic JSON files stored locally in `./db-data/`
 
-## Getting Started
+## Quick Start
 
-### Prerequisites
+### 1. Clone & Install
+```bash
+git clone https://github.com/harshabk22/Customizable-persona-whatsapp-agent.git
+cd Customizable-persona-whatsapp-agent
+npm install
+```
 
-You will need Node.js installed on your machine and a Gemini API Key.
+### 2. Configure Environment
+Copy the `.env.example` file to `.env`:
+```bash
+cp .env.example .env
+```
 
-### Installation
+Open `.env` and add your Gemini API key:
+```env
+GEMINI_API_KEY="your_gemini_api_key_here"
+```
+*(If left empty, the application automatically runs in demo mode with intelligent fallback responses so you can test immediately.)*
 
-1. Clone this repository to your local machine.
-2. Install the dependencies:
-   ```bash
-   npm install
-   ```
-3. Create a `.env` file in the root directory (based on `.env.example`) and add your API key:
-   ```env
-   GEMINI_API_KEY="your_api_key_here"
-   ```
-
-### Running Locally
-
-To start the local development server:
+### 3. Run the Development Server
 ```bash
 npm run dev
 ```
-Once started, open your browser and navigate to `http://localhost:3000`.
+Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-### Building for Production
+## Environment Variables
 
-To compile and package the application:
-```bash
-npm run build
+| Variable | Required | Description |
+| :--- | :--- | :--- |
+| `PORT` | Optional | Web server port (defaults to `3000`) |
+| `JWT_SECRET` | Optional | Secret key for auth tokens |
+| `GEMINI_API_KEY` | Recommended | Google Gemini API key for live AI generation |
+| `WHATSAPP_API_TOKEN` | Optional | Meta WhatsApp Cloud API System User access token |
+| `WHATSAPP_PHONE_NUMBER_ID` | Optional | Meta WhatsApp Business phone number ID |
+| `WHATSAPP_VERIFY_TOKEN` | Optional | Custom verification token for Meta webhook setup |
+
+## Connecting Real WhatsApp (Meta Cloud API)
+
+When you are ready to connect a live business number:
+1. Go to the [Meta for Developers Portal](https://developers.facebook.com/) and create a WhatsApp App.
+2. Under WhatsApp settings, copy your **Phone Number ID** and generate a **System User Access Token**.
+3. Add these credentials to your `.env` file.
+4. Set your Webhook URL in Meta to: `https://your-domain.com/api/whatsapp/webhook`
+5. Enter the `WHATSAPP_VERIFY_TOKEN` you specified in `.env`.
+6. Subscribe to the `messages` webhook field.
+
+## Project Structure
+
 ```
-To run the production build:
-```bash
-npm run start
+├── server.ts              # Express API, Socket.io, Gemini integration & webhooks
+├── src/
+│   ├── App.tsx            # Main shell, socket setup & view router
+│   ├── db.ts              # File-based database with cached atomic reads/writes
+│   ├── types.ts           # Shared TypeScript models
+│   └── components/
+│       ├── Auth.tsx          # Login & registration screen
+│       ├── Dashboard.tsx     # KPI metrics, response charts & activity logs
+│       ├── Conversations.tsx # Live chat, human takeover & phone simulator
+│       ├── Personas.tsx      # Persona editor & system prompt configuration
+│       ├── Contacts.tsx      # Contact list with tag filters & persona assignment
+│       ├── Broadcast.tsx     # Mass announcement scheduler & progress tracker
+│       └── Settings.tsx      # Business hours, response delays & API keys
+├── .env.example           # Environment template
+└── package.json           # Scripts and project dependencies
 ```
+
+## Available Scripts
+
+- `npm run dev`: Runs the full-stack server with live reloading on port 3000.
+- `npm run build`: Compiles the frontend via Vite and backend via esbuild into `dist/`.
+- `npm run start`: Starts the compiled production server.
+- `npm run lint`: Performs TypeScript type checks across the codebase.
+
+## License
+
+MIT

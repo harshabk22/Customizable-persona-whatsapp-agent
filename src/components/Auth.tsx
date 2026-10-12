@@ -19,7 +19,9 @@ export default function Auth({ onAuthSuccess }: AuthProps) {
     setLoading(true);
 
     const endpoint = isLogin ? "/api/auth/login" : "/api/auth/register";
-    const payload = isLogin ? { username, password } : { username, password, name };
+    const payload = isLogin
+      ? { username: username.trim(), password }
+      : { username: username.trim(), password, name: name.trim() };
 
     try {
       const response = await fetch(endpoint, {

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { 
-  Save, Smartphone, RefreshCw, Key, Bot, Settings as SettingsIcon, 
-  Download, Upload, CheckCircle2, AlertTriangle, Shield, Clock, HelpCircle, FileText 
+  Save, Smartphone, RefreshCw, Bot, Settings as SettingsIcon, 
+  Download, Upload, CheckCircle2 
 } from "lucide-react";
 import { Settings, WhatsAppSession, Persona } from "../types";
 
@@ -30,8 +30,10 @@ export default function SettingsPanel({ token }: SettingsProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/settings", { headers });
-      const data = await res.json();
-      setSettings(data);
+      if (res.ok) {
+        const data = await res.json();
+        setSettings(data);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -41,10 +43,12 @@ export default function SettingsPanel({ token }: SettingsProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/whatsapp/status", { headers });
-      const data = await res.json();
-      setSession(data);
-      if (data.qrCode) {
-        setQrToken(data.qrCode);
+      if (res.ok) {
+        const data = await res.json();
+        setSession(data);
+        if (data.qrCode) {
+          setQrToken(data.qrCode);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -55,8 +59,10 @@ export default function SettingsPanel({ token }: SettingsProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/personas", { headers });
-      const data = await res.json();
-      setPersonas(data);
+      if (res.ok) {
+        const data = await res.json();
+        setPersonas(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -159,9 +165,6 @@ export default function SettingsPanel({ token }: SettingsProps) {
 
   // Trigger JSON Workspace Backup Download
   const handleExportBackup = () => {
-    // Standard approach: open full browser download endpoint
-    const url = `/api/backup/export?authorization=${encodeURIComponent("Bearer " + token)}`;
-    
     // Create an anchor element to force download with auth header
     fetch("/api/backup/export", {
       headers: { Authorization: `Bearer ${token}` }
@@ -518,7 +521,7 @@ export default function SettingsPanel({ token }: SettingsProps) {
                     disabled
                     className="w-full bg-[#151515] border border-white/5 rounded-xl py-2.5 px-3.5 text-zinc-500 focus:outline-none text-sm font-semibold cursor-not-allowed"
                   >
-                    <option value="gemini-2.5-flash">Gemini 3.5 Flash (Zero Setup Free)</option>
+                    <option value="gemini-2.5-flash">Gemini 2.5 Flash (Zero Setup Free)</option>
                   </select>
                   <span className="text-[10px] text-zinc-500 block mt-1.5 leading-relaxed">
                     Powered securely by Google AI Studio's server-side environment. No API keys required.
@@ -569,7 +572,7 @@ export default function SettingsPanel({ token }: SettingsProps) {
                     min="0"
                     max="1"
                     value={settings.temperature}
-                    onChange={(e) => setSettings({ ...settings, temperature: parseFloat(e.target.value) })}
+                    onChange={(e) => setSettings({ ...settings, temperature: parseFloat(e.target.value) || 0 })}
                     className="w-full bg-[#1a1a1a] border border-white/5 rounded-xl py-2 px-3 text-zinc-100 focus:outline-none focus:border-indigo-500 text-xs"
                   />
                 </div>
@@ -579,7 +582,7 @@ export default function SettingsPanel({ token }: SettingsProps) {
                   <input
                     type="number"
                     value={settings.maxTokens}
-                    onChange={(e) => setSettings({ ...settings, maxTokens: parseInt(e.target.value) })}
+                    onChange={(e) => setSettings({ ...settings, maxTokens: parseInt(e.target.value) || 0 })}
                     className="w-full bg-[#1a1a1a] border border-white/5 rounded-xl py-2 px-3 text-zinc-100 focus:outline-none focus:border-indigo-500 text-xs"
                   />
                 </div>
@@ -602,7 +605,7 @@ export default function SettingsPanel({ token }: SettingsProps) {
                   <input
                     type="number"
                     value={settings.conversationMemory}
-                    onChange={(e) => setSettings({ ...settings, conversationMemory: parseInt(e.target.value) })}
+                    onChange={(e) => setSettings({ ...settings, conversationMemory: parseInt(e.target.value) || 0 })}
                     className="w-full bg-[#1a1a1a] border border-white/5 rounded-xl py-2 px-3 text-zinc-100 focus:outline-none focus:border-indigo-500 text-xs"
                   />
                 </div>
@@ -616,7 +619,7 @@ export default function SettingsPanel({ token }: SettingsProps) {
                     type="number"
                     min="1"
                     value={settings.replyDelay}
-                    onChange={(e) => setSettings({ ...settings, replyDelay: parseInt(e.target.value) })}
+                    onChange={(e) => setSettings({ ...settings, replyDelay: parseInt(e.target.value) || 0 })}
                     className="w-full bg-[#1a1a1a] border border-white/5 rounded-xl py-2 px-3 text-zinc-100 focus:outline-none focus:border-indigo-500 text-xs"
                   />
                 </div>
@@ -627,7 +630,7 @@ export default function SettingsPanel({ token }: SettingsProps) {
                     type="number"
                     min="1"
                     value={settings.typingDelay}
-                    onChange={(e) => setSettings({ ...settings, typingDelay: parseInt(e.target.value) })}
+                    onChange={(e) => setSettings({ ...settings, typingDelay: parseInt(e.target.value) || 0 })}
                     className="w-full bg-[#1a1a1a] border border-white/5 rounded-xl py-2 px-3 text-zinc-100 focus:outline-none focus:border-indigo-500 text-xs"
                   />
                 </div>

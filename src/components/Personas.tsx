@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
-import { Plus, Bot, Sparkles, Edit2, Trash2, Copy, Play, CheckCircle2, X } from "lucide-react";
+import { Plus, Bot, Sparkles, Edit2, Trash2, Copy, Play, X } from "lucide-react";
 import { Persona } from "../types";
 
 interface PersonasProps {
   token: string;
+  onPersonaActivated?: (persona: Persona) => void;
 }
 
-export default function Personas({ token }: PersonasProps) {
+export default function Personas({ token, onPersonaActivated }: PersonasProps) {
   const [personas, setPersonas] = useState<Persona[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -25,8 +26,10 @@ export default function Personas({ token }: PersonasProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/personas", { headers });
-      const data = await res.json();
-      setPersonas(data);
+      if (res.ok) {
+        const data = await res.json();
+        setPersonas(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
       console.error("Failed to load personas:", err);
     } finally {
@@ -115,6 +118,8 @@ export default function Personas({ token }: PersonasProps) {
       });
 
       if (res.ok) {
+        const data = await res.json();
+        if (onPersonaActivated) onPersonaActivated(data);
         fetchPersonas();
       } else {
         const data = await res.json();

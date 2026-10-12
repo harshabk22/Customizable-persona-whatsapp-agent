@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { io, Socket } from "socket.io-client";
+import { Socket } from "socket.io-client";
 import { 
-  Send, Megaphone, CheckSquare, Square, Search, 
-  MessageSquare, Users, AlertCircle, Clock, CheckCircle2 
+  Send, Megaphone, CheckSquare, Square, Search, AlertCircle 
 } from "lucide-react";
 import { Contact, Broadcast } from "../types";
 
 interface BroadcastProps {
   token: string;
+  socket?: Socket | null;
 }
 
-export default function BroadcastPanel({ token }: BroadcastProps) {
+export default function BroadcastPanel({ token, socket }: BroadcastProps) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
@@ -25,8 +25,10 @@ export default function BroadcastPanel({ token }: BroadcastProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/contacts", { headers });
-      const data = await res.json();
-      setContacts(data);
+      if (res.ok) {
+        const data = await res.json();
+        setContacts(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -38,8 +40,10 @@ export default function BroadcastPanel({ token }: BroadcastProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/broadcast/history", { headers });
-      const data = await res.json();
-      setBroadcasts(data);
+      if (res.ok) {
+        const data = await res.json();
+        setBroadcasts(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
       console.error(err);
     }
@@ -52,14 +56,9 @@ export default function BroadcastPanel({ token }: BroadcastProps) {
 
   // Connect WebSockets to receive live updates of broadcast campaign sending
   useEffect(() => {
-    const socketUrl = window.location.origin;
-    const socket = io(socketUrl);
+    if (!socket) return;
 
-    socket.on("connect", () => {
-      socket.emit("authenticate", token);
-    });
-
-    socket.on("broadcast_updated", (updatedCampaign: Broadcast) => {
+    const onBroadcastUpdated = (updatedCampaign: Broadcast) => {
       setBroadcasts((curr) => {
         const index = curr.findIndex((b) => b.id === updatedCampaign.id);
         if (index === -1) {
@@ -69,12 +68,15 @@ export default function BroadcastPanel({ token }: BroadcastProps) {
         next[index] = updatedCampaign;
         return next;
       });
-    });
+    };
+
+    socket.on("broadcast_updated", onBroadcastUpdated);
 
     return () => {
-      socket.disconnect();
+      socket.off("broadcast_updated", onBroadcastUpdated);
     };
-  }, [token]);
+  }, [socket]);
+
 
   const handleSelectContact = (id: string) => {
     setSelectedContacts((prev) =>
@@ -84,6 +86,7 @@ export default function BroadcastPanel({ token }: BroadcastProps) {
 
   const handleSelectAll = () => {
     const visibleIds = filteredContacts.map((c) => c.id);
+    if (visibleIds.length === 0) return;
     const allSelected = visibleIds.every((id) => selectedContacts.includes(id));
 
     if (allSelected) {
@@ -111,10 +114,10 @@ export default function BroadcastPanel({ token }: BroadcastProps) {
         method: "POST",
         headers,
         body: JSON.stringify({
-          name,
-          messageText,
+          name: name.trim(),
+          messageText: messageText.trim(),
           contactIds: selectedContacts,
-          scheduledTime: scheduledTime || undefined,
+          scheduledTime: scheduledTime ? new Date(scheduledTime).toISOString() : undefined,
         }),
       });
 
@@ -133,12 +136,14 @@ export default function BroadcastPanel({ token }: BroadcastProps) {
     }
   };
 
-  const filteredContacts = contacts.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone.includes(search) ||
-      c.tags.some((t) => t.toLowerCase().includes(search.toLowerCase()))
-  );
+  const searchLower = search.trim().toLowerCase();
+  const filteredContacts = contacts.filter((c) => {
+    if (!searchLower) return true;
+    const nameMatch = (c.name || "").toLowerCase().includes(searchLower);
+    const phoneMatch = (c.phone || "").includes(searchLower);
+    const tagMatch = (c.tags || []).some((t) => (t || "").toLowerCase().includes(searchLower));
+    return nameMatch || phoneMatch || tagMatch;
+  });
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-7xl mx-auto font-sans text-zinc-100">
@@ -327,7 +332,7 @@ export default function BroadcastPanel({ token }: BroadcastProps) {
                   </div>
 
                   <div className="flex gap-1">
-                    {contact.tags.slice(0, 1).map((tag, i) => (
+                    {(contact.tags || []).slice(0, 1).map((tag, i) => (
                       <span key={i} className="text-[9px] bg-white/5 text-zinc-400 border border-white/5 px-1.5 py-0.5 rounded-full">
                         {tag}
                       </span>

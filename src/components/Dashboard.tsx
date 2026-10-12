@@ -1,21 +1,22 @@
 import React, { useEffect, useState } from "react";
-import { io } from "socket.io-client";
+import { Socket } from "socket.io-client";
 import { 
-  MessageSquare, Users, Cpu, Shield, RefreshCw, Smartphone, 
+  MessageSquare, Users, Cpu, Smartphone, 
   Clock, Zap, CheckCircle2, TrendingUp, AlertCircle 
 } from "lucide-react";
 import { 
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis, 
-  CartesianGrid, Tooltip, BarChart, Bar, Legend 
+  CartesianGrid, Tooltip, BarChart, Bar 
 } from "recharts";
-import { Contact, Conversation, WhatsAppSession, Log, Analytics } from "../types";
+import { Conversation, WhatsAppSession, Log, Analytics } from "../types";
 
 interface DashboardProps {
   token: string;
   onNavigate: (tab: string) => void;
+  socket?: Socket | null;
 }
 
-export default function Dashboard({ token, onNavigate }: DashboardProps) {
+export default function Dashboard({ token, onNavigate, socket }: DashboardProps) {
   const [session, setSession] = useState<WhatsAppSession | null>(null);
   const [contactsCount, setContactsCount] = useState(0);
   const [convsCount, setConvsCount] = useState(0);
@@ -26,58 +27,69 @@ export default function Dashboard({ token, onNavigate }: DashboardProps) {
   const [analyticsData, setAnalyticsData] = useState<Analytics[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch initial dashboard metrics
+  // Fetch initial dashboard metrics concurrently
   useEffect(() => {
     const fetchMetrics = async () => {
       try {
         const headers = { Authorization: `Bearer ${token}` };
         
-        // WhatsApp Status
-        const statusRes = await fetch("/api/whatsapp/status", { headers });
-        const statusData = await statusRes.json();
-        setSession(statusData);
+        const [statusRes, contactsRes, convsRes, logsRes, analyticsRes] = await Promise.all([
+          fetch("/api/whatsapp/status", { headers }),
+          fetch("/api/contacts", { headers }),
+          fetch("/api/messages", { headers }),
+          fetch("/api/logs", { headers }),
+          fetch("/api/analytics", { headers }),
+        ]);
 
-        // Contacts Count
-        const contactsRes = await fetch("/api/contacts", { headers });
-        const contactsData = await contactsRes.json();
-        setContactsCount(contactsData.length);
-
-        // Conversations / Messages
-        const convsRes = await fetch("/api/messages", { headers });
-        const convsData = (await convsRes.json()) as Conversation[];
-        setConvsCount(convsData.length);
-        setRecentConvs(convsData.slice(0, 5));
-
-        // Fetch logs
-        const logsRes = await fetch("/api/logs", { headers });
-        if (logsRes.ok) {
-          const logsData = await logsRes.json();
-          setLogs(logsData.slice(0, 15));
+        if (statusRes.ok) {
+          const statusData = await statusRes.json();
+          setSession(statusData);
         }
 
-        // Fetch analytics
-        const analyticsRes = await fetch("/api/analytics", { headers });
-        if (analyticsRes.ok) {
-          const analyticsData = (await analyticsRes.json()) as Analytics[];
-          const sortedAnalytics = analyticsData
-            .sort((a, b) => a.date.localeCompare(b.date))
-            .map(item => {
-              const dateObj = new Date(item.date + "T00:00:00");
-              const dayLabel = dateObj.toLocaleDateString("en-US", { weekday: "short" });
-              return {
-                ...item,
-                displayDate: dayLabel
-              };
-            });
-          setAnalyticsData(sortedAnalytics);
+        if (contactsRes.ok) {
+          const contactsData = await contactsRes.json();
+          setContactsCount(Array.isArray(contactsData) ? contactsData.length : 0);
+        }
 
-          if (sortedAnalytics.length > 0) {
-            const todayMetrics = sortedAnalytics[sortedAnalytics.length - 1];
-            setMessagesToday(todayMetrics.totalMessages);
-            setAiRepliesToday(todayMetrics.aiReplies);
+        if (convsRes.ok) {
+          const convsData = (await convsRes.json()) as Conversation[];
+          if (Array.isArray(convsData)) {
+            const sorted = [...convsData].sort(
+              (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+            );
+            setConvsCount(sorted.length);
+            setRecentConvs(sorted.slice(0, 5));
           }
         }
 
+        if (logsRes.ok) {
+          const logsData = await logsRes.json();
+          if (Array.isArray(logsData)) {
+            setLogs(logsData.slice(0, 15));
+          }
+        }
+
+        if (analyticsRes.ok) {
+          const data = (await analyticsRes.json()) as Analytics[];
+          if (Array.isArray(data)) {
+            const sortedAnalytics = [...data]
+              .sort((a, b) => a.date.localeCompare(b.date))
+              .map((item) => {
+                const dateObj = new Date(item.date + "T00:00:00");
+                const dayLabel = dateObj.toLocaleDateString("en-US", { weekday: "short" });
+                return {
+                  ...item,
+                  displayDate: dayLabel,
+                };
+              });
+            setAnalyticsData(sortedAnalytics);
+
+            const todayStr = new Date().toISOString().split("T")[0];
+            const todayItem = sortedAnalytics.find((item) => item.date === todayStr);
+            setMessagesToday(todayItem ? todayItem.totalMessages : 0);
+            setAiRepliesToday(todayItem ? todayItem.aiReplies : 0);
+          }
+        }
       } catch (err) {
         console.error("Failed to load dashboard metrics", err);
       } finally {
@@ -88,73 +100,74 @@ export default function Dashboard({ token, onNavigate }: DashboardProps) {
     fetchMetrics();
   }, [token]);
 
-  // Connect WebSockets for real-time dashboard updates
+  // Real-time dashboard updates via shared WebSocket
   useEffect(() => {
-    if (!token) return;
+    if (!socket) return;
 
-    const socketUrl = window.location.origin;
-    const socket = io(socketUrl);
-
-    socket.on("connect", () => {
-      socket.emit("authenticate", token);
-    });
-
-    socket.on("log_added", (newLog: Log) => {
+    const onLogAdded = (newLog: Log) => {
       setLogs((prev) => [newLog, ...prev].slice(0, 15));
-    });
+    };
 
-    socket.on("analytics_updated", (record: Analytics) => {
+    const onAnalyticsUpdated = (record: Analytics) => {
       setAnalyticsData((prev) => {
         const dateObj = new Date(record.date + "T00:00:00");
         const dayLabel = dateObj.toLocaleDateString("en-US", { weekday: "short" });
         const formattedRecord = {
           ...record,
-          displayDate: dayLabel
+          displayDate: dayLabel,
         };
 
         const index = prev.findIndex((item) => item.date === record.date);
-        if (index === -1) {
-          return [...prev, formattedRecord].slice(-7);
-        }
-        const next = [...prev];
-        next[index] = formattedRecord;
+        const next = index === -1 ? [...prev, formattedRecord].slice(-7) : [...prev];
+        if (index !== -1) next[index] = formattedRecord;
 
-        if (index === prev.length - 1) {
+        const todayStr = new Date().toISOString().split("T")[0];
+        if (record.date === todayStr) {
           setMessagesToday(record.totalMessages);
           setAiRepliesToday(record.aiReplies);
         }
         return next;
       });
-    });
+    };
 
-    socket.on("whatsapp_status", (status: WhatsAppSession) => {
+    const onWhatsappStatus = (status: WhatsAppSession) => {
       setSession(status);
-    });
+    };
 
-    socket.on("conversations_updated", (updatedList: Conversation[]) => {
-      setConvsCount(updatedList.length);
-      setRecentConvs(updatedList.slice(0, 5));
-    });
+    const onConversationsUpdated = (updatedList: Conversation[]) => {
+      if (Array.isArray(updatedList)) {
+        const sorted = [...updatedList].sort(
+          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+        setConvsCount(sorted.length);
+        setRecentConvs(sorted.slice(0, 5));
+      }
+    };
 
-    socket.on("contact_added", () => {
-      const fetchContactsCount = async () => {
-        try {
-          const res = await fetch("/api/contacts", {
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          const data = await res.json();
-          setContactsCount(data.length);
-        } catch (err) {
-          console.error(err);
-        }
-      };
-      fetchContactsCount();
-    });
+    const onContactAdded = () => {
+      setContactsCount((prev) => prev + 1);
+    };
+
+    const onContactDeleted = () => {
+      setContactsCount((prev) => Math.max(0, prev - 1));
+    };
+
+    socket.on("log_added", onLogAdded);
+    socket.on("analytics_updated", onAnalyticsUpdated);
+    socket.on("whatsapp_status", onWhatsappStatus);
+    socket.on("conversations_updated", onConversationsUpdated);
+    socket.on("contact_added", onContactAdded);
+    socket.on("contact_deleted", onContactDeleted);
 
     return () => {
-      socket.disconnect();
+      socket.off("log_added", onLogAdded);
+      socket.off("analytics_updated", onAnalyticsUpdated);
+      socket.off("whatsapp_status", onWhatsappStatus);
+      socket.off("conversations_updated", onConversationsUpdated);
+      socket.off("contact_added", onContactAdded);
+      socket.off("contact_deleted", onContactDeleted);
     };
-  }, [token]);
+  }, [socket]);
 
   if (loading) {
     return (
@@ -411,7 +424,7 @@ export default function Dashboard({ token, onNavigate }: DashboardProps) {
           <div className="space-y-3 flex-1 overflow-y-auto max-h-[290px] pr-1">
             {logs.map((log, index) => (
               <div 
-                key={index} 
+                key={log.id || `${log.timestamp}-${index}`} 
                 className="flex items-start gap-3 p-3 rounded-xl bg-[#1a1a1a] border border-white/5 text-xs"
               >
                 {log.type === "success" && <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />}

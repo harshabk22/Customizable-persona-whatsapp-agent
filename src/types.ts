@@ -103,6 +103,7 @@ export interface Broadcast {
   progress: number;
   contactsCount: number;
   sentCount: number;
+  targetContactIds?: string[];
 }
 
 export interface Log {

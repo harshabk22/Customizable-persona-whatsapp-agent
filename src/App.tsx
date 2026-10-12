@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { io, Socket } from "socket.io-client";
 import { 
   MessageSquare, LayoutDashboard, Users, Bot, Megaphone, 
   Settings as SettingsIcon, LogOut, Sparkles, Smartphone, Menu, X, User 
@@ -14,14 +15,20 @@ import { Persona, WhatsAppSession } from "./types";
 
 export default function App() {
   const [token, setToken] = useState<string | null>(localStorage.getItem("token"));
-  const [user, setUser] = useState<{ id: string; username: string; name: string } | null>(
-    localStorage.getItem("user") ? JSON.parse(localStorage.getItem("user")!) : null
-  );
+  const [user, setUser] = useState<{ id: string; username: string; name: string } | null>(() => {
+    try {
+      const raw = localStorage.getItem("user");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
 
   const [activeTab, setActiveTab] = useState<string>("dashboard");
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [activePersona, setActivePersona] = useState<Persona | null>(null);
   const [connection, setConnection] = useState<WhatsAppSession | null>(null);
+  const [socket, setSocket] = useState<Socket | null>(null);
 
   // Authenticate and retrieve details
   const handleAuthSuccess = (newToken: string, newUser: { id: string; username: string; name: string }) => {
@@ -37,39 +44,70 @@ export default function App() {
     localStorage.removeItem("user");
     setToken(null);
     setUser(null);
+    if (socket) {
+      socket.disconnect();
+      setSocket(null);
+    }
   };
 
-  // Poll active persona and connection status globally so the top bar is always correct in real-time
+  // Manage single centralized Socket.IO connection
   useEffect(() => {
-    if (!token) return;
+    if (!token) {
+      if (socket) {
+        socket.disconnect();
+        setSocket(null);
+      }
+      return;
+    }
 
-    const fetchTopBarStatus = async () => {
+    const s = io(window.location.origin, {
+      auth: { token },
+    });
+
+    s.on("connect", () => {
+      s.emit("authenticate", token);
+    });
+
+    s.on("whatsapp_status", (session: WhatsAppSession) => {
+      setConnection(session);
+    });
+
+    s.on("persona_activated", (persona: Persona) => {
+      setActivePersona(persona);
+    });
+
+    setSocket(s);
+
+    // Initial status fetch once on mount/login
+    const fetchInitialStatus = async () => {
       try {
         const headers = { Authorization: `Bearer ${token}` };
-
-        // 1. Fetch Personas to find active one
-        const pRes = await fetch("/api/personas", { headers });
+        const [pRes, sRes] = await Promise.all([
+          fetch("/api/personas", { headers }),
+          fetch("/api/whatsapp/status", { headers })
+        ]);
         if (pRes.ok) {
           const pData = (await pRes.json()) as Persona[];
-          const active = pData.find((p) => p.isActive);
-          setActivePersona(active || pData[0] || null);
+          if (Array.isArray(pData)) {
+            const active = pData.find((p) => p.isActive);
+            setActivePersona(active || pData[0] || null);
+          }
         }
-
-        // 2. Fetch Session status
-        const sRes = await fetch("/api/whatsapp/status", { headers });
         if (sRes.ok) {
           const sData = await sRes.json();
           setConnection(sData);
         }
       } catch (err) {
-        console.error("Top bar poll error:", err);
+        console.error("Initial status fetch error:", err);
       }
     };
 
-    fetchTopBarStatus();
-    const interval = setInterval(fetchTopBarStatus, 6000); // Poll every 6s
-    return () => clearInterval(interval);
-  }, [token, activeTab]);
+    fetchInitialStatus();
+
+    return () => {
+      s.disconnect();
+    };
+  }, [token]);
 
   if (!token || !user) {
     return <Auth onAuthSuccess={handleAuthSuccess} />;
@@ -88,19 +126,19 @@ export default function App() {
   const renderActiveTab = () => {
     switch (activeTab) {
       case "dashboard":
-        return <Dashboard token={token} onNavigate={setActiveTab} />;
+        return <Dashboard token={token} onNavigate={setActiveTab} socket={socket} />;
       case "conversations":
-        return <Conversations token={token} />;
+        return <Conversations token={token} socket={socket} />;
       case "contacts":
-        return <Contacts token={token} />;
+        return <Contacts token={token} socket={socket} />;
       case "personas":
-        return <Personas token={token} />;
+        return <Personas token={token} onPersonaActivated={setActivePersona} />;
       case "broadcast":
-        return <BroadcastPanel token={token} />;
+        return <BroadcastPanel token={token} socket={socket} />;
       case "settings":
         return <SettingsPanel token={token} />;
       default:
-        return <Dashboard token={token} onNavigate={setActiveTab} />;
+        return <Dashboard token={token} onNavigate={setActiveTab} socket={socket} />;
     }
   };
 

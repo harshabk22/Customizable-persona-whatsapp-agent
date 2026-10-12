@@ -1,16 +1,17 @@
 import React, { useEffect, useState, useRef } from "react";
-import { io, Socket } from "socket.io-client";
+import { Socket } from "socket.io-client";
 import { 
-  Send, Bot, User, Play, Pause, Power, MessageSquare, 
-  Smartphone, Bell, Zap, Info, ShieldAlert, Sparkles, Save, Tag
+  Send, Bot, User, Pause, MessageSquare, 
+  Smartphone, Sparkles, Save, Tag, Check, CheckCheck 
 } from "lucide-react";
 import { Conversation, Message, Contact, Persona } from "../types";
 
 interface ConversationsProps {
   token: string;
+  socket?: Socket | null;
 }
 
-export default function Conversations({ token }: ConversationsProps) {
+export default function Conversations({ token, socket }: ConversationsProps) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConv, setSelectedConv] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -20,7 +21,6 @@ export default function Conversations({ token }: ConversationsProps) {
   
   // Real-time state
   const [isTyping, setIsTyping] = useState(false);
-  const [socket, setSocket] = useState<Socket | null>(null);
 
   // Tab selections for right column (Simulator vs Contact Profile Card vs Conversation Settings)
   const [rightTab, setRightTab] = useState<"simulator" | "profile" | "settings">("simulator");
@@ -33,7 +33,6 @@ export default function Conversations({ token }: ConversationsProps) {
   const [bulkSuccess, setBulkSuccess] = useState(false);
 
   // Virtual WhatsApp Device simulator state
-  const [showSimulator, setShowSimulator] = useState(true);
   const [simulatedGuestPhone, setSimulatedGuestPhone] = useState("+15550192834");
   const [simulatedGuestText, setSimulatedGuestText] = useState("");
   const [simulatedPhoneMessages, setSimulatedPhoneMessages] = useState<Array<{ sender: "guest" | "me" | "ai", text: string, time: string }>>([]);
@@ -61,6 +60,12 @@ export default function Conversations({ token }: ConversationsProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const simEndRef = useRef<HTMLDivElement>(null);
 
+  // Refs to avoid stale closures and nested setState calls in socket listeners
+  const selectedConvRef = useRef<Conversation | null>(null);
+  selectedConvRef.current = selectedConv;
+  const simulatedPhoneRef = useRef<string>(simulatedGuestPhone);
+  simulatedPhoneRef.current = simulatedGuestPhone;
+
   // Scroll to bottom helper
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -78,13 +83,21 @@ export default function Conversations({ token }: ConversationsProps) {
     scrollSimToBottom();
   }, [simulatedPhoneMessages]);
 
+  const sortConvs = (list: Conversation[]) => {
+    return [...list].sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+  };
+
   // Fetch conversations, contacts, and personas
   const fetchConversations = async () => {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/messages", { headers });
-      const data = await res.json();
-      setConversations(data);
+      if (res.ok) {
+        const data = await res.json();
+        setConversations(sortConvs(Array.isArray(data) ? data : []));
+      }
     } catch (err) {
       console.error("Error fetching conversations:", err);
     }
@@ -94,8 +107,10 @@ export default function Conversations({ token }: ConversationsProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/contacts", { headers });
-      const data = await res.json();
-      setContacts(data);
+      if (res.ok) {
+        const data = await res.json();
+        setContacts(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
       console.error("Error fetching contacts:", err);
     }
@@ -105,8 +120,10 @@ export default function Conversations({ token }: ConversationsProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch("/api/personas", { headers });
-      const data = await res.json();
-      setPersonas(data);
+      if (res.ok) {
+        const data = await res.json();
+        setPersonas(Array.isArray(data) ? data : []);
+      }
     } catch (err) {
       console.error("Error fetching personas:", err);
     }
@@ -118,77 +135,87 @@ export default function Conversations({ token }: ConversationsProps) {
     fetchPersonas();
   }, [token]);
 
-  // Connect WebSockets for real-time instant updates
+  // Connect WebSockets for real-time instant updates using shared socket
   useEffect(() => {
-    const socketUrl = window.location.origin;
-    const s = io(socketUrl);
+    if (!socket) return;
 
-    s.on("connect", () => {
-      s.emit("authenticate", token);
-    });
-
-    s.on("authenticated", (status) => {
-      if (status.success) {
-        setSocket(s);
+    const onMessageAdded = (data: { conversationId: string; message: Message }) => {
+      if (selectedConvRef.current?.id === data.conversationId) {
+        setMessages((prev) => {
+          if (prev.some((m) => m.id === data.message.id)) return prev;
+          return [...prev, data.message];
+        });
       }
-    });
-
-    s.on("message_added", (data: { conversationId: string; message: Message }) => {
-      // If we are looking at this conversation, push to messages
-      setSelectedConv((curr) => {
-        if (curr && curr.id === data.conversationId) {
-          setMessages((prev) => {
-            if (prev.some((m) => m.id === data.message.id)) return prev;
-            return [...prev, data.message];
-          });
-        }
-        return curr;
-      });
+      // Also update simulated device if phone matches
+      if (selectedConvRef.current?.contactPhone === simulatedPhoneRef.current) {
+        setSimulatedPhoneMessages((prev) => {
+          const time = new Date(data.message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          if (prev.some((m) => m.text === data.message.text && m.time === time)) return prev;
+          return [
+            ...prev,
+            {
+              sender: data.message.sender === "contact" ? "guest" as const : (data.message.sender === "ai" ? "ai" as const : "me" as const),
+              text: data.message.text,
+              time,
+            },
+          ];
+        });
+      }
       fetchConversations();
-    });
+    };
 
-    s.on("conversations_updated", (updatedList: Conversation[]) => {
-      setConversations(updatedList);
-      // Update selected conversation instance to reflect status
-      setSelectedConv((curr) => {
-        if (curr) {
-          const found = updatedList.find(c => c.id === curr.id);
-          return found || curr;
-        }
-        return null;
-      });
-    });
+    const onConversationsUpdated = (updatedList: Conversation[]) => {
+      const sorted = sortConvs(updatedList);
+      setConversations(sorted);
+      if (selectedConvRef.current) {
+        const found = sorted.find((c) => c.id === selectedConvRef.current?.id);
+        if (found) setSelectedConv(found);
+      }
+    };
 
-    s.on("typing_status", (data: { conversationId: string; status: "typing" | "idle" }) => {
-      setSelectedConv((curr) => {
-        if (curr && curr.id === data.conversationId) {
-          setIsTyping(data.status === "typing");
-        }
-        return curr;
-      });
-    });
+    const onTypingStatus = (data: { conversationId: string; status: "typing" | "idle" }) => {
+      if (selectedConvRef.current?.id === data.conversationId) {
+        setIsTyping(data.status === "typing");
+      }
+    };
 
-    // Simulated device updates
-    s.on("simulated_receive_reply", (data: { phone: string; text: string; sender: "user" | "ai" }) => {
-      setSimulatedGuestPhone((currPhone) => {
-        if (currPhone === data.phone) {
-          setSimulatedPhoneMessages((prev) => [
+    const onMessageStatusUpdated = (data: { id: string; status: "sent" | "delivered" | "read" }) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === data.id ? { ...m, status: data.status } : m))
+      );
+    };
+
+    const onSimulatedReply = (data: { phone: string; text: string; sender: "user" | "ai" }) => {
+      if (simulatedPhoneRef.current === data.phone) {
+        setSimulatedPhoneMessages((prev) => {
+          const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+          if (prev.length > 0 && prev[prev.length - 1].text === data.text) return prev;
+          return [
             ...prev,
             {
               sender: data.sender === "ai" ? "ai" : "me",
               text: data.text,
-              time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-            }
-          ]);
-        }
-        return currPhone;
-      });
-    });
+              time,
+            },
+          ];
+        });
+      }
+    };
+
+    socket.on("message_added", onMessageAdded);
+    socket.on("message_status_updated", onMessageStatusUpdated);
+    socket.on("conversations_updated", onConversationsUpdated);
+    socket.on("typing_status", onTypingStatus);
+    socket.on("simulated_receive_reply", onSimulatedReply);
 
     return () => {
-      s.disconnect();
+      socket.off("message_added", onMessageAdded);
+      socket.off("message_status_updated", onMessageStatusUpdated);
+      socket.off("conversations_updated", onConversationsUpdated);
+      socket.off("typing_status", onTypingStatus);
+      socket.off("simulated_receive_reply", onSimulatedReply);
     };
-  }, [token]);
+  }, [socket]);
 
   // Load chat history when conversation selected
   const handleSelectConversation = async (conv: Conversation) => {
@@ -212,19 +239,20 @@ export default function Conversations({ token }: ConversationsProps) {
     try {
       const headers = { Authorization: `Bearer ${token}` };
       const res = await fetch(`/api/messages/${conv.id}`, { headers });
-      const data = await res.json();
-      setMessages(data.messages);
-      
-      // Seed simulator chat history matching this contact
-      setSimulatedGuestPhone(conv.contactPhone);
-      const mappedSimMsgs = data.messages.map((m: Message) => ({
-        sender: m.sender === "contact" ? "guest" as const : (m.sender === "ai" ? "ai" as const : "me" as const),
-        text: m.text,
-        time: new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      }));
-      setSimulatedPhoneMessages(mappedSimMsgs);
+      if (res.ok) {
+        const data = await res.json();
+        setMessages(Array.isArray(data.messages) ? data.messages : []);
+        
+        // Seed simulator chat history matching this contact
+        setSimulatedGuestPhone(conv.contactPhone);
+        const mappedSimMsgs = (data.messages || []).map((m: Message) => ({
+          sender: m.sender === "contact" ? "guest" as const : (m.sender === "ai" ? "ai" as const : "me" as const),
+          text: m.text,
+          time: new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        }));
+        setSimulatedPhoneMessages(mappedSimMsgs);
+      }
 
-      // Refresh list to clear unread indicator
       fetchConversations();
     } catch (err) {
       console.error("Error loading chat history:", err);
@@ -252,9 +280,8 @@ export default function Conversations({ token }: ConversationsProps) {
 
       if (res.ok) {
         setTypedMessage("");
-        // Load messages
         const data = await res.json();
-        setMessages((prev) => [...prev, data]);
+        setMessages((prev) => (prev.some((m) => m.id === data.id) ? prev : [...prev, data]));
         fetchConversations();
       }
     } catch (err) {
@@ -300,9 +327,12 @@ export default function Conversations({ token }: ConversationsProps) {
 
       const tagsArray = editTags.split(",").map(t => t.trim()).filter(Boolean);
 
-      // 1. If we have a contactId, patch the contact record
-      if (selectedConv.contactId) {
-        await fetch(`/api/contacts/${selectedConv.contactId}`, {
+      // 1. If we have a matching contact, patch the contact record
+      const targetContactId = selectedConv.contactId 
+        || contacts.find(c => c.phone === selectedConv.contactPhone)?.id;
+
+      if (targetContactId) {
+        await fetch(`/api/contacts/${targetContactId}`, {
           method: "PATCH",
           headers,
           body: JSON.stringify({
@@ -663,11 +693,22 @@ export default function Conversations({ token }: ConversationsProps) {
                       
                       <p className="text-sm whitespace-pre-line leading-relaxed">{m.text}</p>
                       
-                      <span className={`text-[9px] block mt-1.5 text-right opacity-70 ${
+                      <div className={`text-[9px] flex items-center justify-end gap-1 mt-1.5 opacity-70 ${
                         isContact ? "text-zinc-500" : "text-white/80"
                       }`}>
-                        {new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                      </span>
+                        <span>{new Date(m.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                        {!isContact && (
+                          <span title={m.status || "sent"} className="inline-flex items-center">
+                            {m.status === "read" ? (
+                              <CheckCheck className="w-3 h-3 text-cyan-300" />
+                            ) : m.status === "delivered" ? (
+                              <CheckCheck className="w-3 h-3 text-white/70" />
+                            ) : (
+                              <Check className="w-3 h-3 text-white/70" />
+                            )}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
